@@ -13,11 +13,9 @@ A visually stunning, premium-feeling anonymous men's support chat platform built
 
 ### Core Features
 - **Anonymous User System**: Auto-generated premium usernames (e.g., "ResilientOak", "WiseAnchor")
-- **Support Rooms**: 5 specialized spaces for different needs
-- **P2P WebRTC Messaging**: Real-time peer-to-peer communication
+- **Support Rooms**: 7 specialized spaces for different needs (Venting, Advice, Struggles, Success, Q&A, Health, Finance)
+- **Multi-Tab Messaging**: Real-time communication across browser tabs/windows
 - **Safety & Moderation**: Content filtering and community guidelines
-- **Typing Indicators**: Real-time feedback
-- **Message Reactions**: Express support with emojis
 - **Keyboard Shortcuts**: Enter to send, efficient navigation
 
 ### Zero-Cost Architecture
@@ -132,14 +130,18 @@ brandemen/
 
 This is a **client-side only prototype** with the following limitations:
 
-1. **P2P Not Fully Implemented**: WebRTC signaling would require a signaling server
-2. **Single-User Demo**: Messages are currently local-only
-3. **No Persistence**: All messages are lost on refresh
+1. **Tab-Only Communication**: BroadcastChannel only works within the same browser (across tabs/windows), NOT across different browsers or devices
+2. **No Persistence**: All messages are lost on refresh
+3. **No Cross-Device**: Users on different devices won't see each other's messages
 
-For full P2P functionality, you would need:
-- A signaling server (WebSocket-based)
-- Peer discovery mechanism
-- STUN/TURN servers for NAT traversal
+### Why?
+BroadcastChannel is a browser API that allows same-origin communication between tabs. It's perfect for testing and demos, but limited to a single browser instance.
+
+### To Enable Cross-Device Messaging:
+You would need a WebSocket server:
+- Node.js + Socket.io backend
+- Message broadcasting to all connected clients
+- Real-time synchronization across all devices
 
 ## 🔮 Future Enhancements
 
