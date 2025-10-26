@@ -249,13 +249,10 @@ class AblyChatManager {
 
     async switchRoom(roomId) {
         try {
-            // Clear messages before switching to avoid showing old messages
-            app.messages.clear();
-            
-            // Join the new room
+            // Join the new room (messages persist in app.messages Map)
             await this.joinRoom(roomId);
             
-            // Render the now-empty room
+            // Just render the messages for the current room
             app.renderMessages();
         } catch (error) {
             console.error('Error switching room:', error);
