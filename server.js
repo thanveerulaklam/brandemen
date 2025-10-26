@@ -1,4 +1,4 @@
-// server.js - Optimized for Fly.io deployment
+// server.js - Optimized for Cyclic.sh deployment
 const WebSocket = require('ws');
 const http = require('http');
 const express = require('express');
@@ -182,13 +182,13 @@ app.get('/health', (req, res) => {
     users: clients.size,
     rooms: Array.from(Object.keys(rooms)),
     timestamp: new Date().toISOString(),
-    platform: 'fly.io'
+    platform: 'cyclic'
   });
 });
 
 app.get('/', (req, res) => {
   res.json({ 
-    message: 'Brandemen WebSocket Server - Fly.io',
+    message: 'Brandemen WebSocket Server - Cyclic',
     status: 'running',
     version: '1.0.0'
   });
@@ -199,5 +199,8 @@ const HOST = '0.0.0.0';
 
 server.listen(PORT, HOST, () => {
   console.log(`🚀 Brandemen WebSocket server running on ${HOST}:${PORT}`);
-  console.log(`📍 Fly.io deployment ready`);
+  console.log(`📍 Cyclic deployment ready`);
 });
+
+// Export for Cyclic.sh
+module.exports = app;

@@ -1,4 +1,4 @@
-app = "brandemen-chat"
+# app = "brandemen-chat"  # Will be set during launch
 primary_region = "iad"
 
 kill_signal = "SIGINT"
