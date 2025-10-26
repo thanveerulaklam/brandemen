@@ -1,6 +1,7 @@
-const express = require('express');
+// server.js - Deploy to Render.com (FREE FOREVER)
+const WebSocket = require('ws');
 const http = require('http');
-const socketIo = require('socket.io');
+const express = require('express');
 const path = require('path');
 
 const app = express();
@@ -9,16 +10,11 @@ const server = http.createServer(app);
 // Serve static files from current directory
 app.use(express.static(path.join(__dirname)));
 
-// Enable CORS for all origins
-const io = socketIo(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  }
-});
+// Create WebSocket server
+const wss = new WebSocket.Server({ server });
 
-// Store connected users
-const users = new Map();
+// Store connected clients
+const clients = new Map();
 const rooms = {
   'venting': new Set(),
   'advice': new Set(),
@@ -29,125 +25,155 @@ const rooms = {
   'finance': new Set()
 };
 
-io.on('connection', (socket) => {
-  console.log('✅ New user connected:', socket.id);
+function generateId() {
+  return 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+}
 
-  // User joins
-  socket.on('user-join', (data) => {
-    const { userId, username, room } = data;
-    
-    users.set(socket.id, { userId, username, room });
-    if (rooms[room]) {
-      rooms[room].add(socket.id);
-    }
-
-    // Notify others in the room
-    socket.to(room).emit('user-joined', { username });
-    
-    // Send current user count for the room
-    io.to(socket.id).emit('user-count', { 
-      room, 
-      count: rooms[room] ? rooms[room].size : 0 
+function broadcastToRoom(roomId, message) {
+  const room = rooms[roomId];
+  if (room) {
+    room.forEach(client => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify(message));
+      }
     });
+  }
+}
 
-    console.log(`📥 ${username} joined room: ${room}`);
+function getRoomUserCount(roomId) {
+  const room = rooms[roomId];
+  return room ? room.size : 0;
+}
+
+wss.on('connection', (ws) => {
+  const userId = generateId();
+  const userInfo = {
+    userId,
+    username: `User${Math.floor(Math.random() * 1000)}`,
+    room: 'venting',
+    ws: ws
+  };
+  
+  clients.set(ws, userInfo);
+  
+  console.log('✅ User connected:', userId, 'Total:', clients.size);
+  
+  // Send welcome message
+  ws.send(JSON.stringify({
+    type: 'welcome',
+    userId: userId,
+    message: 'Connected to Brandemen community'
+  }));
+
+  // Join default room
+  if (!rooms[userInfo.room]) {
+    rooms[userInfo.room] = new Set();
+  }
+  rooms[userInfo.room].add(ws);
+
+  // Notify others in room
+  broadcastToRoom(userInfo.room, {
+    type: 'user-joined',
+    userId: userId,
+    username: userInfo.username,
+    room: userInfo.room,
+    onlineCount: getRoomUserCount(userInfo.room)
   });
 
-  // Join a room
-  socket.on('join-room', (room) => {
-    socket.join(room);
-    
-    // Update user's room
-    const user = users.get(socket.id);
-    if (user) {
-      // Remove from old room
-      if (rooms[user.room]) {
-        rooms[user.room].delete(socket.id);
-      }
-      // Add to new room
-      user.room = room;
-      if (rooms[room]) {
-        rooms[room].add(socket.id);
-      }
-    }
-
-    // Send updated count
-    io.to(socket.id).emit('user-count', { 
-      room, 
-      count: rooms[room] ? rooms[room].size : 0 
-    });
-
-    console.log(`🔄 ${socket.id} joined room: ${room}`);
-  });
-
-  // Leave a room
-  socket.on('leave-room', (room) => {
-    socket.leave(room);
-    
-    if (rooms[room]) {
-      rooms[room].delete(socket.id);
-    }
-  });
-
-  // Handle messages
-  socket.on('chat-message', (data) => {
-    const user = users.get(socket.id);
-    
-    if (user) {
-      const messageData = {
-        ...data,
-        userId: user.userId,
-        username: user.username,
-        timestamp: Date.now()
-      };
-
-      // Broadcast to everyone in the room
-      io.to(data.room).emit('chat-message', messageData);
+  ws.on('message', (data) => {
+    try {
+      const message = JSON.parse(data);
+      const client = clients.get(ws);
       
-      console.log(`💬 Message in ${data.room} from ${user.username}`);
-    }
-  });
-
-  // Typing indicator
-  socket.on('typing', (data) => {
-    const user = users.get(socket.id);
-    if (user) {
-      socket.to(data.room).emit('typing', {
-        username: user.username,
-        isTyping: data.isTyping
-      });
-    }
-  });
-
-  // Handle disconnection
-  socket.on('disconnect', () => {
-    const user = users.get(socket.id);
-    
-    if (user) {
-      console.log(`👋 ${user.username} disconnected`);
-      
-      // Remove from room
-      if (rooms[user.room]) {
-        rooms[user.room].delete(socket.id);
+      if (message.type === 'join-room') {
+        // Leave previous room
+        if (client.room && rooms.has(client.room)) {
+          rooms.get(client.room).delete(ws);
+        }
+        
+        // Join new room
+        client.room = message.room;
+        client.username = message.username || client.username;
+        
+        if (!rooms.has(message.room)) {
+          rooms.set(message.room, new Set());
+        }
+        rooms.get(message.room).add(ws);
+        
+        // Notify room
+        broadcastToRoom(message.room, {
+          type: 'user-joined',
+          userId: client.userId,
+          username: client.username,
+          room: message.room,
+          onlineCount: getRoomUserCount(message.room)
+        });
+        
+        // Send updated count to client
+        ws.send(JSON.stringify({
+          type: 'user-count',
+          room: message.room,
+          count: getRoomUserCount(message.room)
+        }));
       }
       
-      // Notify others in room
-      socket.to(user.room).emit('user-left', { username: user.username });
+      if (message.type === 'chat-message') {
+        broadcastToRoom(client.room, {
+          type: 'chat-message',
+          userId: client.userId,
+          username: client.username,
+          text: message.text,
+          room: client.room,
+          timestamp: Date.now()
+        });
+      }
       
-      users.delete(socket.id);
+    } catch (error) {
+      console.error('Message error:', error);
     }
-
-    console.log('❌ User disconnected:', socket.id);
   });
 
-  // Heartbeat/ping
-  socket.on('ping', () => {
-    socket.emit('pong');
+  ws.on('close', () => {
+    const client = clients.get(ws);
+    if (client) {
+      // Notify room
+      if (client.room && rooms.has(client.room)) {
+        broadcastToRoom(client.room, {
+          type: 'user-left',
+          userId: client.userId,
+          username: client.username,
+          room: client.room,
+          onlineCount: getRoomUserCount(client.room) - 1
+        });
+        
+        // Clean up
+        rooms.get(client.room).delete(ws);
+      }
+      clients.delete(ws);
+    }
+    
+    console.log('❌ User disconnected. Total:', clients.size);
+  });
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    users: clients.size,
+    rooms: Array.from(Object.keys(rooms)),
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/', (req, res) => {
+  res.json({ 
+    message: 'Brandemen WebSocket Server',
+    status: 'running'
   });
 });
 
 const PORT = process.env.PORT || 3000;
-
 server.listen(PORT, () => {
   console.log(`🚀 Brandemen WebSocket server running on port ${PORT}`);
   console.log(`📍 Server ready for connections`);

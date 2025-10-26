@@ -1,19 +1,16 @@
 {
   "name": "brandemen",
   "version": "1.0.0",
-  "description": "A visually stunning, premium-feeling anonymous men's support chat platform built with pure client-side technologies. Zero backend costs, zero databases, 100% privacy-focused.",
-  "main": "app.js",
+  "description": "Premium Zero-Cost Men's Support Web App",
+  "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js"
+    "start": "node server.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
-    "cors": "^2.8.5",
-    "express": "^5.1.0",
-    "socket.io": "^4.8.1",
-    "socket.io-client": "^4.8.1"
+    "ws": "^8.14.2",
+    "express": "^4.18.2"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }

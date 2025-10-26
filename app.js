@@ -1,18 +1,18 @@
 // ============================================
-// BRANDEMEN - SOCKET.IO CLIENT
-// Real-time WebSocket messaging
+// BRANDEMEN - NATIVE WEBSOCKET CLIENT
+// Real-time cross-device messaging (FREE on Render.com)
 // ============================================
 
 // Premium Anonymous Username Generator
 const premiumAdjectives = [
     'Resilient', 'Wise', 'Steady', 'Brave', 'Keen', 'Bold', 'Solid', 'Calm',
     'True', 'Bright', 'Sharp', 'Deep', 'Strong', 'Clear', 'Pure', 'Firm',
-    'Swift', 'Bold', 'Proud', 'Grand', 'Noble', 'Royal', 'Bold', 'Prime'
+    'Swift', 'Proud', 'Grand', 'Noble', 'Royal', 'Prime'
 ];
 
 const premiumNouns = [
     'Oak', 'Anchor', 'Compass', 'Tide', 'Peak', 'Eagle', 'Lion', 'Stone',
-    'Storm', 'Flame', 'River', 'Storm', 'Blade', 'Shield', 'Beacon', 'Star',
+    'Storm', 'Flame', 'River', 'Blade', 'Shield', 'Beacon', 'Star',
     'Crown', 'Dawn', 'Light', 'Wave', 'Rock', 'Cliff', 'Wind', 'Sun'
 ];
 
@@ -67,120 +67,144 @@ const appState = {
     }
 };
 
-// Socket.io WebSocket Client
-class SocketIOChat {
+// Native WebSocket Client
+class WebSocketChat {
     constructor() {
-        this.socket = null;
-        this.serverUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-            ? 'http://localhost:3000'
-            : 'https://your-server.railway.app'; // Update with your deployed server URL
-        this.init();
+        this.ws = null;
+        this.reconnectAttempts = 0;
+        this.maxReconnectAttempts = 5;
+        this.userId = null;
+        this.username = null;
+        this.currentRoom = appState.currentRoom;
+        
+        this.connect();
     }
 
-    init() {
-        // Connect to Socket.io server
-        this.socket = io(this.serverUrl, {
-            transports: ['websocket', 'polling'],
-            timeout: 10000
-        });
-
-        this.setupEventHandlers();
-    }
-
-    setupEventHandlers() {
-        // Connection events
-        this.socket.on('connect', () => {
-            console.log('✅ Connected to WebSocket server');
-            app.updateConnectionStatus('connected');
+    connect() {
+        try {
+            // Get server URL - update this with your Render.com URL after deployment
+            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const WS_URL = isLocal 
+                ? 'ws://localhost:3000'
+                : 'wss://your-app-name.onrender.com'; // Update this!
             
-            // Join initial room
-            this.joinRoom(appState.currentRoom);
-        });
-
-        this.socket.on('disconnect', () => {
-            console.log('❌ Disconnected from server');
-            app.updateConnectionStatus('connecting');
-        });
-
-        this.socket.on('connect_error', (error) => {
-            console.error('Connection error:', error);
-            app.updateConnectionStatus('connecting');
-        });
-
-        // Message events
-        this.socket.on('chat-message', (messageData) => {
-            // Don't process our own messages (already added locally)
-            if (messageData.userId !== appState.userId) {
-                app.addMessage(messageData, false);
-            }
-        });
-
-        this.socket.on('user-joined', (data) => {
-            app.addSystemMessage(`${data.username} joined`);
-        });
-
-        this.socket.on('user-left', (data) => {
-            // Optional: notify when user leaves
-            console.log(`${data.username} left`);
-        });
-
-        this.socket.on('user-count', (data) => {
-            app.updateOnlineCount(data.count);
-        });
-
-        this.socket.on('typing', (data) => {
-            const typingIndicator = document.getElementById('typingIndicator');
-            if (data.isTyping) {
-                typingIndicator.innerHTML = `<span class="username-typing">${data.username}</span> is typing...`;
-            } else {
-                typingIndicator.innerHTML = '';
-            }
-        });
-    }
-
-    joinRoom(room) {
-        if (this.socket && this.socket.connected) {
-            this.socket.emit('join-room', room);
+            this.ws = new WebSocket(WS_URL);
             
-            // Notify server of user join
-            this.socket.emit('user-join', {
-                userId: appState.userId,
-                username: appState.username,
-                room: room
-            });
+            this.ws.onopen = () => {
+                console.log('✅ Connected to Brandemen server');
+                this.reconnectAttempts = 0;
+                app.updateConnectionStatus('connected');
+                
+                // Join current room
+                this.joinRoom(this.currentRoom);
+            };
+
+            this.ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    this.handleMessage(data);
+                } catch (error) {
+                    console.error('Message parsing error:', error);
+                }
+            };
+
+            this.ws.onclose = () => {
+                console.log('❌ Connection closed');
+                app.updateConnectionStatus('connecting');
+                this.attemptReconnect();
+            };
+
+            this.ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+
+        } catch (error) {
+            console.error('Connection failed:', error);
+            this.attemptReconnect();
         }
     }
 
-    sendMessage(text, room) {
-        if (!this.socket || !this.socket.connected) {
-            console.error('Not connected to server');
-            return;
-        }
+    handleMessage(data) {
+        switch (data.type) {
+            case 'welcome':
+                console.log('Server:', data.message);
+                break;
+                
+            case 'chat-message':
+                if (data.room === this.currentRoom) {
+                    app.addMessage({
+                        userId: data.userId,
+                        username: data.username,
+                        text: data.text,
+                        room: data.room,
+                        timestamp: data.timestamp
+                    }, data.userId !== this.userId);
+                }
+                break;
+                
+            case 'user-joined':
+                if (data.room === this.currentRoom) {
+                    app.addSystemMessage(`${data.username} joined the room`);
+                    app.updateOnlineCount(data.onlineCount);
+                }
+                break;
+                
+            case 'user-left':
+                if (data.room === this.currentRoom) {
+                    app.updateOnlineCount(data.onlineCount);
+                }
+                break;
 
-        this.socket.emit('chat-message', {
-            text: text,
-            room: room
-        });
+            case 'user-count':
+                app.updateOnlineCount(data.count);
+                break;
+        }
     }
 
-    sendTyping(isTyping) {
-        if (this.socket && this.socket.connected) {
-            this.socket.emit('typing', {
-                room: appState.currentRoom,
-                isTyping: isTyping
-            });
+    joinRoom(roomId) {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.currentRoom = roomId;
+            this.ws.send(JSON.stringify({
+                type: 'join-room',
+                room: roomId,
+                username: this.username,
+                userId: this.userId
+            }));
+        }
+    }
+
+    sendMessage(text) {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({
+                type: 'chat-message',
+                text: text,
+                username: this.username,
+                userId: this.userId,
+                room: this.currentRoom
+            }));
+            return true;
+        }
+        return false;
+    }
+
+    attemptReconnect() {
+        if (this.reconnectAttempts < this.maxReconnectAttempts) {
+            this.reconnectAttempts++;
+            setTimeout(() => this.connect(), 2000 * this.reconnectAttempts);
         }
     }
 }
 
 // Main Application
 const app = {
-    socketChat: null,
+    chatSystem: null,
     messages: new Map(),
     
     init() {
         this.setupUser();
-        this.socketChat = new SocketIOChat();
+        this.chatSystem = new WebSocketChat();
+        this.chatSystem.userId = appState.userId;
+        this.chatSystem.username = appState.username;
         this.setupEventListeners();
         this.hideLoadingScreen();
         this.showWelcomeModal();
@@ -282,8 +306,8 @@ const app = {
         }
         
         // Join new room on server
-        if (this.socketChat) {
-            this.socketChat.joinRoom(roomId);
+        if (this.chatSystem) {
+            this.chatSystem.joinRoom(roomId);
         }
         
         this.renderMessages();
@@ -313,8 +337,8 @@ const app = {
         this.addMessage(message, true);
         
         // Send via WebSocket
-        if (this.socketChat) {
-            this.socketChat.sendMessage(text, appState.currentRoom);
+        if (this.chatSystem) {
+            this.chatSystem.sendMessage(text);
         }
         
         // Clear input
@@ -514,5 +538,5 @@ if (document.readyState === 'loading') {
 
 // Add demo message
 setTimeout(() => {
-    app.addSystemMessage('Welcome to Brandemen. Real-time chat powered by WebSockets!');
+    app.addSystemMessage('Welcome to Brandemen. Real-time cross-device messaging powered by WebSockets!');
 }, 2500);
