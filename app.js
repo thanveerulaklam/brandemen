@@ -99,6 +99,11 @@ class AblyChatManager {
         this.channel.subscribe('chat-message', (message) => {
             this.handleChatMessage(message.data);
         });
+        
+        // Subscribe to typing indicators
+        this.channel.subscribe('typing', (message) => {
+            this.handleTyping(message.data);
+        });
 
         // Set up presence
         await this.channel.presence.enter({
@@ -156,6 +161,34 @@ class AblyChatManager {
         }
     }
 
+    handleTyping(typingData) {
+        if (typingData.userId !== this.userId) {
+            const typingIndicator = document.getElementById('typingIndicator');
+            if (typingIndicator) {
+                if (typingData.isTyping) {
+                    typingIndicator.innerHTML = `<span class="username-typing">${typingData.username}</span> is typing...`;
+                } else {
+                    typingIndicator.innerHTML = '';
+                }
+            }
+        }
+    }
+
+    async sendTyping(isTyping) {
+        if (!this.channel) return;
+        
+        try {
+            await this.channel.publish('typing', {
+                userId: this.userId,
+                username: this.username,
+                isTyping: isTyping,
+                room: this.currentRoom
+            });
+        } catch (error) {
+            console.error('Error sending typing indicator:', error);
+        }
+    }
+
     async sendMessage(text) {
         if (!this.channel) return false;
 
@@ -191,7 +224,9 @@ class AblyChatManager {
 
     async switchRoom(roomId) {
         await this.joinRoom(roomId);
-        // Clear messages for new room (handled by app)
+        // Clear all messages to start fresh for the new room
+        app.messages.clear();
+        app.renderMessages();
     }
 }
 
@@ -250,10 +285,26 @@ const app = {
 
         sendBtn.addEventListener('click', () => this.sendMessage());
 
-        // Character count
+        // Character count and typing indicator
+        let typingTimeout;
         messageInput.addEventListener('input', (e) => {
             const length = e.target.value.length;
             document.getElementById('charCount').textContent = `${length}/500`;
+            
+            // Send typing indicator
+            if (this.chatManager) {
+                this.chatManager.sendTyping(true);
+                
+                // Clear existing timeout
+                clearTimeout(typingTimeout);
+                
+                // Set timeout to stop typing indicator
+                typingTimeout = setTimeout(() => {
+                    if (this.chatManager) {
+                        this.chatManager.sendTyping(false);
+                    }
+                }, 2000);
+            }
         });
 
         // Modal controls
