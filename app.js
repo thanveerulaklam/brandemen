@@ -84,16 +84,25 @@ class AblyChatManager {
     }
 
     async joinRoom(roomId) {
-        // Leave previous room if exists
-        if (this.channel) {
-            await this.channel.presence.leave();
-            this.channel.unsubscribe();
-        }
+        try {
+            // Leave previous room if exists
+            if (this.channel) {
+                try {
+                    await this.channel.presence.leave();
+                    this.channel.unsubscribe();
+                } catch (error) {
+                    console.error('Error leaving previous room:', error);
+                }
+            }
 
-        this.currentRoom = roomId;
-        const channelName = `brandemen:${roomId}`;
-        
-        this.channel = this.ably.channels.get(channelName);
+            this.currentRoom = roomId;
+            const channelName = `brandemen:${roomId}`;
+            
+            this.channel = this.ably.channels.get(channelName);
+        } catch (error) {
+            console.error('Error setting up channel:', error);
+            throw error;
+        }
         
         // Subscribe to messages
         this.channel.subscribe('chat-message', (message) => {
@@ -106,27 +115,43 @@ class AblyChatManager {
         });
 
         // Set up presence
-        await this.channel.presence.enter({
-            userId: this.userId,
-            username: this.username,
-            room: roomId,
-            timestamp: Date.now()
-        });
+        try {
+            await this.channel.presence.enter({
+                userId: this.userId,
+                username: this.username,
+                room: roomId,
+                timestamp: Date.now()
+            });
+        } catch (error) {
+            console.error('Error entering presence:', error);
+        }
 
         // Listen for presence updates
         this.channel.presence.subscribe('enter', (member) => {
-            this.handleUserJoined(member.data);
+            if (member && member.data) {
+                this.handleUserJoined(member.data);
+            }
         });
 
         this.channel.presence.subscribe('leave', (member) => {
-            this.handleUserLeft(member.data);
+            if (member && member.data) {
+                this.handleUserLeft(member.data);
+            }
         });
 
         // Get current members
-        const members = await this.channel.presence.get();
-        members.forEach(member => {
-            this.handleUserJoined(member.data);
-        });
+        try {
+            const members = await this.channel.presence.get();
+            if (members && Array.isArray(members)) {
+                members.forEach(member => {
+                    if (member && member.data) {
+                        this.handleUserJoined(member.data);
+                    }
+                });
+            }
+        } catch (error) {
+            console.error('Error getting current members:', error);
+        }
 
         console.log(`✅ Joined room: ${roomId}`);
     }
@@ -223,10 +248,19 @@ class AblyChatManager {
     }
 
     async switchRoom(roomId) {
-        await this.joinRoom(roomId);
-        // Clear all messages to start fresh for the new room
-        app.messages.clear();
-        app.renderMessages();
+        try {
+            // Clear messages before switching to avoid showing old messages
+            app.messages.clear();
+            
+            // Join the new room
+            await this.joinRoom(roomId);
+            
+            // Render the now-empty room
+            app.renderMessages();
+        } catch (error) {
+            console.error('Error switching room:', error);
+            app.showNotification('Failed to switch room');
+        }
     }
 }
 
