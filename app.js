@@ -140,9 +140,11 @@ class AblyChatManager {
             console.error('Error entering presence:', error);
         }
 
-        // Get current members (this includes everyone already in the room)
+        // Get current members with waitForSync option
+        // This ensures Ably waits for presence data to be fully synchronized
         try {
-            const members = await this.channel.presence.get();
+            console.log('📊 Requesting current members (with waitForSync)...');
+            const members = await this.channel.presence.get({ waitForSync: true });
             console.log('📊 Current members in room:', members);
             console.log('📊 Members type:', typeof members);
             console.log('📊 Is array:', Array.isArray(members));
