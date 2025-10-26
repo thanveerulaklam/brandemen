@@ -115,19 +115,7 @@ class AblyChatManager {
             this.handleTyping(message.data);
         });
 
-        // Set up presence
-        try {
-            await this.channel.presence.enter({
-                userId: this.userId,
-                username: this.username,
-                room: roomId,
-                timestamp: Date.now()
-            });
-        } catch (error) {
-            console.error('Error entering presence:', error);
-        }
-
-        // Listen for presence updates
+        // Listen for presence updates BEFORE entering (to catch ourselves)
         this.channel.presence.subscribe('enter', (member) => {
             if (member && member.data) {
                 this.handleUserJoined(member.data);
@@ -140,15 +128,31 @@ class AblyChatManager {
             }
         });
 
-        // Get current members
+        // Set up presence (enter the room)
+        try {
+            await this.channel.presence.enter({
+                userId: this.userId,
+                username: this.username,
+                room: roomId,
+                timestamp: Date.now()
+            });
+        } catch (error) {
+            console.error('Error entering presence:', error);
+        }
+
+        // Get current members (this includes everyone already in the room)
         try {
             const members = await this.channel.presence.get();
+            console.log('📊 Current members in room:', members);
             if (members && Array.isArray(members)) {
                 members.forEach(member => {
                     if (member && member.data) {
+                        console.log('👤 Found member:', member.data);
                         this.handleUserJoined(member.data);
                     }
                 });
+            } else {
+                console.log('⚠️ No members found or invalid response');
             }
         } catch (error) {
             console.error('Error getting current members:', error);
@@ -174,11 +178,22 @@ class AblyChatManager {
     }
 
     handleUserJoined(userData) {
+        console.log('🔔 User joined:', userData);
+        console.log('👥 Current online users before:', Array.from(this.onlineUsers));
+        
         if (userData.userId && userData.userId !== this.userId) {
             this.onlineUsers.add(userData.userId);
+            console.log('✅ Added user to online list:', userData.userId);
+        } else {
+            console.log('❌ Not adding user (is self or no userId)');
         }
+        
+        const totalCount = this.onlineUsers.size + 1; // +1 for ourselves
+        console.log('📊 Total online count:', totalCount);
+        console.log('👥 Current online users after:', Array.from(this.onlineUsers));
+        
         // Update count including ourselves
-        app.updateOnlineCount(this.onlineUsers.size + 1);
+        app.updateOnlineCount(totalCount);
         
         // Show join notification only for new joins (not initial load)
         if (!this.isInitialLoad && userData.room === this.currentRoom && userData.userId !== this.userId) {
