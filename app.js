@@ -128,7 +128,11 @@ class AblyChatManager {
 
     handleChatMessage(messageData) {
         // Only process messages for current room and not our own
-        if (messageData.room === this.currentRoom && messageData.userId !== this.userId) {
+        if (messageData.room && messageData.room === this.currentRoom && messageData.userId !== this.userId) {
+            // Ensure room property is set
+            if (!messageData.room) {
+                messageData.room = this.currentRoom;
+            }
             app.addMessage(messageData, false);
         }
     }
@@ -344,6 +348,11 @@ const app = {
     },
 
     addMessage(messageData, isOwn = false) {
+        // Ensure every message has a room property
+        if (!messageData.room) {
+            messageData.room = this.chatManager ? this.chatManager.currentRoom : 'venting';
+        }
+        
         const messageKey = `${messageData.userId}_${messageData.timestamp}`;
         this.messages.set(messageKey, messageData);
         
@@ -369,10 +378,16 @@ const app = {
         const emptyState = document.getElementById('emptyState');
         
         const currentRoom = this.chatManager ? this.chatManager.currentRoom : 'venting';
+        
+        // Filter messages for current room only
         const roomMessages = Array.from(this.messages.values())
-            .filter(msg => msg.room === currentRoom)
+            .filter(msg => {
+                // Ensure message has room property and matches current room
+                return msg.room && msg.room === currentRoom;
+            })
             .sort((a, b) => a.timestamp - b.timestamp);
         
+        // Always clear the wrapper first
         messagesWrapper.innerHTML = '';
         
         if (roomMessages.length === 0) {
