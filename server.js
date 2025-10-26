@@ -1,10 +1,13 @@
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
-const cors = require('cors');
+const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
+
+// Serve static files from current directory
+app.use(express.static(path.join(__dirname)));
 
 // Enable CORS for all origins
 const io = socketIo(server, {
