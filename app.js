@@ -39,6 +39,7 @@ class AblyChatManager {
         this.username = generatePremiumName();
         this.currentRoom = 'venting';
         this.onlineUsers = new Set();
+        this.isInitialLoad = true;
         
         this.init();
     }
@@ -153,6 +154,11 @@ class AblyChatManager {
             console.error('Error getting current members:', error);
         }
 
+        // Mark initial load as complete after a short delay
+        setTimeout(() => {
+            this.isInitialLoad = false;
+        }, 1000);
+
         console.log(`✅ Joined room: ${roomId}`);
     }
 
@@ -168,19 +174,20 @@ class AblyChatManager {
     }
 
     handleUserJoined(userData) {
-        if (userData.userId !== this.userId) {
+        if (userData.userId && userData.userId !== this.userId) {
             this.onlineUsers.add(userData.userId);
-            app.updateOnlineCount(this.onlineUsers.size + 1); // +1 for ourselves
-            
-            // Show join notification for current room
-            if (userData.room === this.currentRoom) {
-                app.showNotification(`${userData.username} joined the room`);
-            }
+        }
+        // Update count including ourselves
+        app.updateOnlineCount(this.onlineUsers.size + 1);
+        
+        // Show join notification only for new joins (not initial load)
+        if (!this.isInitialLoad && userData.room === this.currentRoom && userData.userId !== this.userId) {
+            app.showNotification(`${userData.username} joined the room`);
         }
     }
 
     handleUserLeft(userData) {
-        if (userData.userId !== this.userId) {
+        if (userData.userId && userData.userId !== this.userId) {
             this.onlineUsers.delete(userData.userId);
             app.updateOnlineCount(this.onlineUsers.size + 1);
         }
@@ -249,6 +256,9 @@ class AblyChatManager {
 
     async switchRoom(roomId) {
         try {
+            // Clear online users before joining new room to get fresh count
+            this.onlineUsers.clear();
+            
             // Join the new room (messages persist in app.messages Map)
             await this.joinRoom(roomId);
             
