@@ -1,4 +1,4 @@
-// server.js - Deploy to Render.com (FREE FOREVER)
+// server.js - Optimized for Fly.io deployment
 const WebSocket = require('ws');
 const http = require('http');
 const express = require('express');
@@ -29,12 +29,16 @@ function generateId() {
   return 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 }
 
-function broadcastToRoom(roomId, message) {
+function broadcastToRoom(roomId, message, excludeWs = null) {
   const room = rooms[roomId];
   if (room) {
     room.forEach(client => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify(message));
+      if (client !== excludeWs && client.readyState === WebSocket.OPEN) {
+        try {
+          client.send(JSON.stringify(message));
+        } catch (error) {
+          console.error('Error sending message:', error);
+        }
       }
     });
   }
@@ -45,13 +49,14 @@ function getRoomUserCount(roomId) {
   return room ? room.size : 0;
 }
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
   const userId = generateId();
   const userInfo = {
     userId,
     username: `User${Math.floor(Math.random() * 1000)}`,
     room: 'venting',
-    ws: ws
+    ws: ws,
+    ip: req.socket.remoteAddress
   };
   
   clients.set(ws, userInfo);
@@ -59,11 +64,16 @@ wss.on('connection', (ws) => {
   console.log('✅ User connected:', userId, 'Total:', clients.size);
   
   // Send welcome message
-  ws.send(JSON.stringify({
-    type: 'welcome',
-    userId: userId,
-    message: 'Connected to Brandemen community'
-  }));
+  try {
+    ws.send(JSON.stringify({
+      type: 'welcome',
+      userId: userId,
+      message: 'Connected to Brandemen community',
+      onlineCount: clients.size
+    }));
+  } catch (error) {
+    console.error('Error sending welcome:', error);
+  }
 
   // Join default room
   if (!rooms[userInfo.room]) {
@@ -78,12 +88,14 @@ wss.on('connection', (ws) => {
     username: userInfo.username,
     room: userInfo.room,
     onlineCount: getRoomUserCount(userInfo.room)
-  });
+  }, ws);
 
   ws.on('message', (data) => {
     try {
       const message = JSON.parse(data);
       const client = clients.get(ws);
+      
+      if (!client) return;
       
       if (message.type === 'join-room') {
         // Leave previous room
@@ -118,14 +130,17 @@ wss.on('connection', (ws) => {
       }
       
       if (message.type === 'chat-message') {
-        broadcastToRoom(client.room, {
-          type: 'chat-message',
-          userId: client.userId,
-          username: client.username,
-          text: message.text,
-          room: client.room,
-          timestamp: Date.now()
-        });
+        // Basic moderation
+        if (message.text && message.text.length <= 500) {
+          broadcastToRoom(client.room, {
+            type: 'chat-message',
+            userId: client.userId,
+            username: client.username,
+            text: message.text,
+            room: client.room,
+            timestamp: Date.now()
+          });
+        }
       }
       
     } catch (error) {
@@ -154,6 +169,10 @@ wss.on('connection', (ws) => {
     
     console.log('❌ User disconnected. Total:', clients.size);
   });
+
+  ws.on('error', (error) => {
+    console.error('WebSocket error:', error);
+  });
 });
 
 // Health check endpoint
@@ -162,19 +181,23 @@ app.get('/health', (req, res) => {
     status: 'ok', 
     users: clients.size,
     rooms: Array.from(Object.keys(rooms)),
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    platform: 'fly.io'
   });
 });
 
 app.get('/', (req, res) => {
   res.json({ 
-    message: 'Brandemen WebSocket Server',
-    status: 'running'
+    message: 'Brandemen WebSocket Server - Fly.io',
+    status: 'running',
+    version: '1.0.0'
   });
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`🚀 Brandemen WebSocket server running on port ${PORT}`);
-  console.log(`📍 Server ready for connections`);
+const HOST = '0.0.0.0';
+
+server.listen(PORT, HOST, () => {
+  console.log(`🚀 Brandemen WebSocket server running on ${HOST}:${PORT}`);
+  console.log(`📍 Fly.io deployment ready`);
 });
