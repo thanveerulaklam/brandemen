@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Brandemen - Men's Support Community</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div id="loading-screen" class="loading-screen">
+        <div class="loading-content">
+            <div class="brand-logo">
+                <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
+                    <circle cx="40" cy="40" r="35" stroke="url(#gradient)" stroke-width="3" fill="none"/>
+                    <path d="M40 15 L40 65 M15 40 L65 40" stroke="url(#gradient)" stroke-width="3"/>
+                    <defs>
+                        <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#d97706"/>
+                            <stop offset="100%" style="stop-color:#065f46"/>
+                        </linearGradient>
+                    </defs>
+                </svg>
+            </div>
+            <h1 class="brand-title">Brandemen</h1>
+            <p class="loading-subtitle">Men supporting men</p>
+        </div>
+    </div>
+
+    <!-- Main App Container -->
+    <div id="app" class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-content">
+                <h1 class="app-title">
+                    <span class="brand-accent">Brand</span>emen
+                </h1>
+                <div class="header-info">
+                    <div class="connection-status" id="connectionStatus">
+                        <span class="status-dot"></span>
+                        <span class="status-text" id="statusText">Connecting...</span>
+                    </div>
+                    <div class="online-count" id="onlineCount">
+                        <span class="count-icon">👥</span>
+                        <span id="userCount">0</span>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Room Navigation -->
+        <nav class="room-nav" id="roomNav">
+            <button class="room-btn active" data-room="venting">
+                <span class="room-icon">🌀</span>
+                <span class="room-name">Venting Space</span>
+            </button>
+            <button class="room-btn" data-room="advice">
+                <span class="room-icon">💡</span>
+                <span class="room-name">Bro Advice</span>
+            </button>
+            <button class="room-btn" data-room="struggles">
+                <span class="room-icon">🛟</span>
+                <span class="room-name">Daily Struggles</span>
+            </button>
+            <button class="room-btn" data-room="success">
+                <span class="room-icon">🎉</span>
+                <span class="room-name">Success Stories</span>
+            </button>
+            <button class="room-btn" data-room="questions">
+                <span class="room-icon">❓</span>
+                <span class="room-name">Q&A</span>
+            </button>
+            <button class="room-btn" data-room="health">
+                <span class="room-icon">💊</span>
+                <span class="room-name">Health</span>
+            </button>
+            <button class="room-btn" data-room="finance">
+                <span class="room-icon">💰</span>
+                <span class="room-name">Finance</span>
+            </button>
+        </nav>
+
+        <!-- Messages Container -->
+        <main class="messages-container" id="messagesContainer">
+            <div class="messages-wrapper" id="messagesWrapper">
+                <div class="empty-state" id="emptyState">
+                    <div class="empty-icon">🤝</div>
+                    <h2>Welcome to <span class="brand-accent">Brandemen</span></h2>
+                    <p>You're in the <span id="currentRoomName">Venting Space</span></p>
+                    <p class="empty-subtitle">Start a conversation or support someone who's sharing</p>
+                </div>
+            </div>
+        </main>
+
+        <!-- Message Input -->
+        <footer class="message-input-container">
+            <div class="input-wrapper">
+                <textarea 
+                    id="messageInput" 
+                    class="message-input" 
+                    placeholder="Share what's on your mind..."
+                    rows="1"
+                    maxlength="500"
+                ></textarea>
+                <div class="input-actions">
+                    <span class="char-count" id="charCount">0/500</span>
+                    <button class="send-btn" id="sendBtn">
+                        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                            <path d="M2 18L18 10L2 2L2 8L13 10L2 12V18Z" fill="currentColor"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <div class="typing-indicator" id="typingIndicator"></div>
+        </footer>
+    </div>
+
+    <!-- Modal Overlays -->
+    <!-- Welcome Tutorial -->
+    <div id="welcomeModal" class="modal-overlay">
+        <div class="modal-content">
+            <button class="modal-close" id="closeWelcome">&times;</button>
+            <h2>Welcome to Brandemen</h2>
+            <div class="tutorial-content">
+                <div class="tutorial-step">
+                    <span class="step-icon">💬</span>
+                    <h3>Anonymous Support</h3>
+                    <p>Share freely with your name <strong id="userName">Loading...</strong></p>
+                </div>
+                <div class="tutorial-step">
+                    <span class="step-icon">🎯</span>
+                    <h3>Choose Your Space</h3>
+                    <p>Pick a room that matches what you need right now</p>
+                </div>
+                <div class="tutorial-step">
+                    <span class="step-icon">🤝</span>
+                    <h3>Support Others</h3>
+                    <p>Respond with empathy and understanding</p>
+                </div>
+                <div class="tutorial-step">
+                    <span class="step-icon">🛡️</span>
+                    <h3>Safe Community</h3>
+                    <p>We moderate content to keep this space positive</p>
+                </div>
+            </div>
+            <button class="btn-primary" id="startChatting">Start Chatting</button>
+        </div>
+    </div>
+
+    <!-- Guidelines Modal -->
+    <div id="guidelinesModal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <button class="modal-close" id="closeGuidelines">&times;</button>
+            <h2>Community Guidelines</h2>
+            <div class="guidelines-list">
+                <div class="guideline-item">
+                    <span class="guideline-icon">✓</span>
+                    <div>
+                        <strong>Be Respectful</strong>
+                        <p>Treat everyone with kindness and empathy</p>
+                    </div>
+                </div>
+                <div class="guideline-item">
+                    <span class="guideline-icon">✓</span>
+                    <div>
+                        <strong>Stay Anonymous</strong>
+                        <p>Don't share personal information</p>
+                    </div>
+                </div>
+                <div class="guideline-item">
+                    <span class="guideline-icon">✓</span>
+                    <div>
+                        <strong>Support First</strong>
+                        <p>Offer constructive advice and understanding</p>
+                    </div>
+                </div>
+                <div class="guideline-item">
+                    <span class="guideline-icon">⚠</span>
+                    <div>
+                        <strong>No Hate Speech</strong>
+                        <p>Zero tolerance for discrimination or harm</p>
+                    </div>
+                </div>
+            </div>
+            <button class="btn-primary" id="acceptGuidelines">I Understand</button>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
