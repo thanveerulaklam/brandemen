@@ -1,229 +1,226 @@
 // ============================================
-// BRANDEMEN - NATIVE WEBSOCKET CLIENT
-// Real-time cross-device messaging (FREE on Render.com)
+// BRANDEMEN - ABLY REAL-TIME CHAT
+// Global, cross-device, actually works!
 // ============================================
 
-// Premium Anonymous Username Generator
-const premiumAdjectives = [
-    'Resilient', 'Wise', 'Steady', 'Brave', 'Keen', 'Bold', 'Solid', 'Calm',
-    'True', 'Bright', 'Sharp', 'Deep', 'Strong', 'Clear', 'Pure', 'Firm',
-    'Swift', 'Proud', 'Grand', 'Noble', 'Royal', 'Prime'
-];
-
-const premiumNouns = [
-    'Oak', 'Anchor', 'Compass', 'Tide', 'Peak', 'Eagle', 'Lion', 'Stone',
-    'Storm', 'Flame', 'River', 'Blade', 'Shield', 'Beacon', 'Star',
-    'Crown', 'Dawn', 'Light', 'Wave', 'Rock', 'Cliff', 'Wind', 'Sun'
-];
+// Premium Username Generator
+const premiumAdjectives = ['Resilient', 'Wise', 'Steady', 'Brave', 'Solid', 'Calm', 'Strong', 'True', 'Bold', 'Bright'];
+const premiumNouns = ['Oak', 'Anchor', 'Compass', 'Rock', 'Light', 'Star', 'Mountain', 'River', 'Eagle', 'Blade'];
 
 function generatePremiumName() {
     const adj = premiumAdjectives[Math.floor(Math.random() * premiumAdjectives.length)];
     const noun = premiumNouns[Math.floor(Math.random() * premiumNouns.length)];
-    return adj + noun;
+    return adj + noun + Math.floor(Math.random() * 100);
 }
 
-// Safety & Moderation System
-const bannedPatterns = [
-    /\b(suicide|kill\s*myself|self\s*harm|end\s*it\s*all)/gi,
-    /\b(die|dead|death|murder)/gi,
-];
-
+// Safety & Moderation
 function moderateMessage(text) {
-    const lowerText = text.toLowerCase();
+    const banned = ['suicide', 'kill myself', 'self harm', 'harm', 'hurt', 'violence'];
+    const lower = text.toLowerCase();
     
-    for (const pattern of bannedPatterns) {
-        if (pattern.test(lowerText)) {
-            return { safe: false, reason: 'This message contains concerning content. Please seek help instead.' };
+    for (const word of banned) {
+        if (lower.includes(word)) {
+            return { safe: false, reason: 'Please keep conversations supportive and safe' };
         }
     }
     
-    if (text.length > 500) {
-        return { safe: false, reason: 'Message is too long. Please keep it under 500 characters.' };
-    }
-    
-    if (!text.trim()) {
-        return { safe: false, reason: 'Empty messages are not allowed.' };
-    }
+    if (text.length > 500) return { safe: false, reason: 'Message too long (max 500 characters)' };
+    if (!text.trim()) return { safe: false, reason: 'Empty messages not allowed' };
     
     return { safe: true };
 }
 
-// Application State
-const appState = {
-    userId: null,
-    username: null,
-    currentRoom: 'venting',
-    messages: new Map(),
-    connectionStatus: 'connecting',
-    
-    roomNames: {
-        venting: 'Venting Space',
-        advice: 'Bro Advice',
-        struggles: 'Daily Struggles',
-        success: 'Success Stories',
-        questions: 'Q&A',
-        health: 'Health',
-        finance: 'Finance'
-    }
-};
-
-// Native WebSocket Client
-class WebSocketChat {
+// Ably Real-time Chat Manager
+class AblyChatManager {
     constructor() {
-        this.ws = null;
-        this.reconnectAttempts = 0;
-        this.maxReconnectAttempts = 5;
-        this.userId = null;
-        this.username = null;
-        this.currentRoom = appState.currentRoom;
+        this.ably = null;
+        this.channel = null;
+        this.userId = this.generateUserId();
+        this.username = generatePremiumName();
+        this.currentRoom = 'venting';
+        this.onlineUsers = new Set();
         
-        this.connect();
+        this.init();
     }
 
-    connect() {
+    generateUserId() {
+        return 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    }
+
+    async init() {
         try {
-            // Get server URL - update this with your Render.com URL after deployment
-            const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-            const WS_URL = isLocal 
-                ? 'ws://localhost:3000'
-                : 'wss://your-app-name.onrender.com'; // Update this!
+            // Replace with your actual Ably API key
+            const ABLY_API_KEY = '8u_bOg.66ydkQ:gnrFZ_mnV1OYc8TVCiCjREMP65tsAP2F0vVpQx_o1kc'; // ← REPLACE THIS
             
-            this.ws = new WebSocket(WS_URL);
-            
-            this.ws.onopen = () => {
-                console.log('✅ Connected to Brandemen server');
-                this.reconnectAttempts = 0;
+            this.ably = new Ably.Realtime({
+                key: ABLY_API_KEY,
+                clientId: this.userId,
+                echoMessages: false // Don't receive our own messages
+            });
+
+            this.ably.connection.on('connected', () => {
+                console.log('✅ Connected to Ably');
                 app.updateConnectionStatus('connected');
-                
-                // Join current room
                 this.joinRoom(this.currentRoom);
-            };
+                
+                // Update online count
+                this.updatePresence();
+            });
 
-            this.ws.onmessage = (event) => {
-                try {
-                    const data = JSON.parse(event.data);
-                    this.handleMessage(data);
-                } catch (error) {
-                    console.error('Message parsing error:', error);
-                }
-            };
+            this.ably.connection.on('failed', () => {
+                console.log('❌ Failed to connect to Ably');
+                app.updateConnectionStatus('disconnected');
+            });
 
-            this.ws.onclose = () => {
-                console.log('❌ Connection closed');
+            this.ably.connection.on('disconnected', () => {
+                console.log('⚠️ Disconnected from Ably');
                 app.updateConnectionStatus('connecting');
-                this.attemptReconnect();
-            };
-
-            this.ws.onerror = (error) => {
-                console.error('WebSocket error:', error);
-            };
+            });
 
         } catch (error) {
-            console.error('Connection failed:', error);
-            this.attemptReconnect();
+            console.error('Error initializing Ably:', error);
+            app.showNotification('Failed to connect to chat service');
         }
     }
 
-    handleMessage(data) {
-        switch (data.type) {
-            case 'welcome':
-                console.log('Server:', data.message);
-                break;
-                
-            case 'chat-message':
-                if (data.room === this.currentRoom) {
-                    app.addMessage({
-                        userId: data.userId,
-                        username: data.username,
-                        text: data.text,
-                        room: data.room,
-                        timestamp: data.timestamp
-                    }, data.userId !== this.userId);
-                }
-                break;
-                
-            case 'user-joined':
-                if (data.room === this.currentRoom) {
-                    app.addSystemMessage(`${data.username} joined the room`);
-                    app.updateOnlineCount(data.onlineCount);
-                }
-                break;
-                
-            case 'user-left':
-                if (data.room === this.currentRoom) {
-                    app.updateOnlineCount(data.onlineCount);
-                }
-                break;
+    async joinRoom(roomId) {
+        // Leave previous room if exists
+        if (this.channel) {
+            await this.channel.presence.leave();
+            this.channel.unsubscribe();
+        }
 
-            case 'user-count':
-                app.updateOnlineCount(data.count);
-                break;
+        this.currentRoom = roomId;
+        const channelName = `brandemen:${roomId}`;
+        
+        this.channel = this.ably.channels.get(channelName);
+        
+        // Subscribe to messages
+        this.channel.subscribe('chat-message', (message) => {
+            this.handleChatMessage(message.data);
+        });
+
+        // Set up presence
+        await this.channel.presence.enter({
+            userId: this.userId,
+            username: this.username,
+            room: roomId,
+            timestamp: Date.now()
+        });
+
+        // Listen for presence updates
+        this.channel.presence.subscribe('enter', (member) => {
+            this.handleUserJoined(member.data);
+        });
+
+        this.channel.presence.subscribe('leave', (member) => {
+            this.handleUserLeft(member.data);
+        });
+
+        // Get current members
+        const members = await this.channel.presence.get();
+        members.forEach(member => {
+            this.handleUserJoined(member.data);
+        });
+
+        console.log(`✅ Joined room: ${roomId}`);
+    }
+
+    handleChatMessage(messageData) {
+        // Only process messages for current room and not our own
+        if (messageData.room === this.currentRoom && messageData.userId !== this.userId) {
+            app.addMessage(messageData, false);
         }
     }
 
-    joinRoom(roomId) {
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            this.currentRoom = roomId;
-            this.ws.send(JSON.stringify({
-                type: 'join-room',
-                room: roomId,
-                username: this.username,
-                userId: this.userId
-            }));
+    handleUserJoined(userData) {
+        if (userData.userId !== this.userId) {
+            this.onlineUsers.add(userData.userId);
+            app.updateOnlineCount(this.onlineUsers.size + 1); // +1 for ourselves
+            
+            // Show join notification for current room
+            if (userData.room === this.currentRoom) {
+                app.showNotification(`${userData.username} joined the room`);
+            }
         }
     }
 
-    sendMessage(text) {
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            this.ws.send(JSON.stringify({
-                type: 'chat-message',
-                text: text,
-                username: this.username,
-                userId: this.userId,
-                room: this.currentRoom
-            }));
+    handleUserLeft(userData) {
+        if (userData.userId !== this.userId) {
+            this.onlineUsers.delete(userData.userId);
+            app.updateOnlineCount(this.onlineUsers.size + 1);
+        }
+    }
+
+    async sendMessage(text) {
+        if (!this.channel) return false;
+
+        const message = {
+            type: 'chat',
+            userId: this.userId,
+            username: this.username,
+            text: text,
+            room: this.currentRoom,
+            timestamp: Date.now()
+        };
+
+        try {
+            // Add to local UI immediately (optimistic update)
+            app.addMessage(message, true);
+            
+            // Publish to Ably
+            await this.channel.publish('chat-message', message);
             return true;
+            
+        } catch (error) {
+            console.error('Error sending message:', error);
+            app.showNotification('Failed to send message');
+            return false;
         }
-        return false;
     }
 
-    attemptReconnect() {
-        if (this.reconnectAttempts < this.maxReconnectAttempts) {
-            this.reconnectAttempts++;
-            setTimeout(() => this.connect(), 2000 * this.reconnectAttempts);
-        }
+    updatePresence() {
+        // Presence is automatically maintained by Ably
+        // This just updates our local count
+        app.updateOnlineCount(this.onlineUsers.size + 1);
+    }
+
+    async switchRoom(roomId) {
+        await this.joinRoom(roomId);
+        // Clear messages for new room (handled by app)
     }
 }
 
 // Main Application
 const app = {
-    chatSystem: null,
+    chatManager: null,
     messages: new Map(),
     
     init() {
         this.setupUser();
-        this.chatSystem = new WebSocketChat();
-        this.chatSystem.userId = appState.userId;
-        this.chatSystem.username = appState.username;
+        this.chatManager = new AblyChatManager();
         this.setupEventListeners();
         this.hideLoadingScreen();
         this.showWelcomeModal();
+        this.updateConnectionStatus('connecting');
+        
+        // Add welcome message
+        setTimeout(() => {
+            this.addSystemMessage('Welcome to Brandemen! This is a real global chat - people can connect from anywhere in the world!');
+        }, 2000);
     },
 
     setupUser() {
-        const storedUserId = sessionStorage.getItem('brandemen_userId');
-        appState.userId = storedUserId || 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-        
-        if (!storedUserId) {
-            sessionStorage.setItem('brandemen_userId', appState.userId);
+        let userId = sessionStorage.getItem('brandemen_userId');
+        if (!userId) {
+            userId = 'user_' + Date.now();
+            sessionStorage.setItem('brandemen_userId', userId);
         }
         
-        appState.username = generatePremiumName();
-        
-        // Update welcome modal
-        const userNameEl = document.getElementById('userName');
-        if (userNameEl) {
-            userNameEl.textContent = appState.username;
+        let username = sessionStorage.getItem('brandemen_username');
+        if (!username) {
+            username = generatePremiumName();
+            sessionStorage.setItem('brandemen_username', username);
         }
     },
 
@@ -239,16 +236,6 @@ const app = {
         // Message input
         const messageInput = document.getElementById('messageInput');
         const sendBtn = document.getElementById('sendBtn');
-        const charCount = document.getElementById('charCount');
-
-        messageInput.addEventListener('input', (e) => {
-            const length = e.target.value.length;
-            charCount.textContent = `${length}/500`;
-            
-            // Auto-resize textarea
-            e.target.style.height = 'auto';
-            e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
-        });
 
         messageInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -258,6 +245,12 @@ const app = {
         });
 
         sendBtn.addEventListener('click', () => this.sendMessage());
+
+        // Character count
+        messageInput.addEventListener('input', (e) => {
+            const length = e.target.value.length;
+            document.getElementById('charCount').textContent = `${length}/500`;
+        });
 
         // Modal controls
         document.getElementById('startChatting')?.addEventListener('click', () => {
@@ -275,7 +268,7 @@ const app = {
             if (loadingScreen) {
                 loadingScreen.style.display = 'none';
             }
-        }, 2000);
+        }, 2500);
     },
 
     showWelcomeModal() {
@@ -285,12 +278,20 @@ const app = {
             if (modal) {
                 modal.classList.remove('hidden');
                 sessionStorage.setItem('brandemen_welcome_seen', 'true');
+                
+                // Update welcome modal with username
+                const userNameEl = document.getElementById('userName');
+                if (userNameEl && this.chatManager) {
+                    userNameEl.textContent = this.chatManager.username;
+                }
             }
         }
     },
 
-    switchRoom(roomId) {
-        appState.currentRoom = roomId;
+    async switchRoom(roomId) {
+        if (this.chatManager) {
+            await this.chatManager.switchRoom(roomId);
+        }
         
         // Update UI
         document.querySelectorAll('.room-btn').forEach(btn => {
@@ -302,18 +303,26 @@ const app = {
         
         const roomNameEl = document.getElementById('currentRoomName');
         if (roomNameEl) {
-            roomNameEl.textContent = appState.roomNames[roomId];
-        }
-        
-        // Join new room on server
-        if (this.chatSystem) {
-            this.chatSystem.joinRoom(roomId);
+            roomNameEl.textContent = this.getRoomName(roomId);
         }
         
         this.renderMessages();
     },
 
-    sendMessage() {
+    getRoomName(roomId) {
+        const roomNames = {
+            'venting': 'Venting Space',
+            'advice': 'Bro Advice',
+            'struggles': 'Daily Struggles', 
+            'success': 'Success Stories',
+            'questions': 'Q&A',
+            'health': 'Health',
+            'finance': 'Finance'
+        };
+        return roomNames[roomId] || roomId;
+    },
+
+    async sendMessage() {
         const messageInput = document.getElementById('messageInput');
         const text = messageInput.value.trim();
         
@@ -325,35 +334,16 @@ const app = {
             return;
         }
         
-        const message = {
-            userId: appState.userId,
-            username: appState.username,
-            text: text,
-            timestamp: Date.now(),
-            room: appState.currentRoom
-        };
-        
-        // Add to local state immediately
-        this.addMessage(message, true);
-        
-        // Send via WebSocket
-        if (this.chatSystem) {
-            this.chatSystem.sendMessage(text);
+        if (this.chatManager) {
+            const success = await this.chatManager.sendMessage(text);
+            if (success) {
+                messageInput.value = '';
+                document.getElementById('charCount').textContent = '0/500';
+            }
         }
-        
-        // Clear input
-        messageInput.value = '';
-        messageInput.style.height = 'auto';
-        document.getElementById('charCount').textContent = '0/500';
-        
-        this.playSound('send');
     },
 
     addMessage(messageData, isOwn = false) {
-        if (!messageData.room) {
-            messageData.room = appState.currentRoom;
-        }
-        
         const messageKey = `${messageData.userId}_${messageData.timestamp}`;
         this.messages.set(messageKey, messageData);
         
@@ -364,11 +354,11 @@ const app = {
     addSystemMessage(text) {
         const message = {
             userId: 'system',
-            username: 'System',
+            username: 'Brandemen',
             text: text,
             timestamp: Date.now(),
             isSystem: true,
-            room: appState.currentRoom
+            room: this.chatManager ? this.chatManager.currentRoom : 'venting'
         };
         
         this.addMessage(message, false);
@@ -378,8 +368,9 @@ const app = {
         const messagesWrapper = document.getElementById('messagesWrapper');
         const emptyState = document.getElementById('emptyState');
         
+        const currentRoom = this.chatManager ? this.chatManager.currentRoom : 'venting';
         const roomMessages = Array.from(this.messages.values())
-            .filter(msg => msg.room && msg.room === appState.currentRoom)
+            .filter(msg => msg.room === currentRoom)
             .sort((a, b) => a.timestamp - b.timestamp);
         
         messagesWrapper.innerHTML = '';
@@ -392,7 +383,7 @@ const app = {
         emptyState?.classList.add('hidden');
         
         roomMessages.forEach(msg => {
-            const messageEl = this.createMessageElement(msg, msg.userId === appState.userId);
+            const messageEl = this.createMessageElement(msg, msg.userId === (this.chatManager?.userId || ''));
             messagesWrapper.appendChild(messageEl);
         });
     },
@@ -421,9 +412,7 @@ const app = {
     },
 
     formatMessage(text) {
-        return this.escapeHtml(text)
-            .replace(/\n/g, '<br>')
-            .replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank">$1</a>');
+        return this.escapeHtml(text).replace(/\n/g, '<br>');
     },
 
     escapeHtml(text) {
@@ -438,7 +427,6 @@ const app = {
     },
 
     updateConnectionStatus(status) {
-        appState.connectionStatus = status;
         const statusDot = document.querySelector('.status-dot');
         const statusText = document.getElementById('statusText');
         
@@ -462,72 +450,17 @@ const app = {
             position: fixed;
             top: 20px;
             right: 20px;
-            background: var(--danger);
+            background: #ef4444;
             color: white;
             padding: 1rem 1.5rem;
             border-radius: 12px;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.3);
             z-index: 10000;
-            animation: slideInRight 0.3s ease-out;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.3);
         `;
-        
         document.body.appendChild(notification);
-        
-        setTimeout(() => {
-            notification.style.animation = 'slideOutRight 0.3s ease-out';
-            setTimeout(() => notification.remove(), 300);
-        }, 3000);
-    },
-
-    playSound(type) {
-        try {
-            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            const oscillator = audioContext.createOscillator();
-            const gainNode = audioContext.createGain();
-            
-            oscillator.connect(gainNode);
-            gainNode.connect(audioContext.destination);
-            
-            oscillator.frequency.value = type === 'send' ? 800 : 600;
-            oscillator.type = 'sine';
-            
-            gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
-            
-            oscillator.start(audioContext.currentTime);
-            oscillator.stop(audioContext.currentTime + 0.1);
-        } catch (e) {
-            // Sound not supported
-        }
+        setTimeout(() => notification.remove(), 3000);
     }
 };
-
-// Add CSS animations
-const style = document.createElement('style');
-style.textContent = `
-    @keyframes slideInRight {
-        from {
-            transform: translateX(400px);
-            opacity: 0;
-        }
-        to {
-            transform: translateX(0);
-            opacity: 1;
-        }
-    }
-    
-    @keyframes slideOutRight {
-        from {
-            transform: translateX(0);
-            opacity: 1;
-        }
-        to {
-            transform: translateX(400px);
-            opacity: 0;
-        }
-    }
-`;
-document.head.appendChild(style);
 
 // Initialize app
 if (document.readyState === 'loading') {
@@ -535,8 +468,3 @@ if (document.readyState === 'loading') {
 } else {
     app.init();
 }
-
-// Add demo message
-setTimeout(() => {
-    app.addSystemMessage('Welcome to Brandemen. Real-time cross-device messaging powered by WebSockets!');
-}, 2500);
