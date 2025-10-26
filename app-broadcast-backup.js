@@ -1,6 +1,6 @@
 // ============================================
-// BRANDEMEN - SOCKET.IO CLIENT
-// Real-time WebSocket messaging
+// BRANDEMEN - APPLICATION LOGIC
+// P2P WebRTC Chat System
 // ============================================
 
 // Premium Anonymous Username Generator
@@ -26,21 +26,25 @@ function generatePremiumName() {
 const bannedPatterns = [
     /\b(suicide|kill\s*myself|self\s*harm|end\s*it\s*all)/gi,
     /\b(die|dead|death|murder)/gi,
+    // Add more patterns as needed
 ];
 
 function moderateMessage(text) {
     const lowerText = text.toLowerCase();
     
+    // Check banned patterns
     for (const pattern of bannedPatterns) {
         if (pattern.test(lowerText)) {
             return { safe: false, reason: 'This message contains concerning content. Please seek help instead.' };
         }
     }
     
+    // Check length
     if (text.length > 500) {
         return { safe: false, reason: 'Message is too long. Please keep it under 500 characters.' };
     }
     
+    // Check for empty or whitespace-only
     if (!text.trim()) {
         return { safe: false, reason: 'Empty messages are not allowed.' };
     }
@@ -54,6 +58,9 @@ const appState = {
     username: null,
     currentRoom: 'venting',
     messages: new Map(),
+    peers: new Map(),
+    onlineUsers: new Set(),
+    typingUsers: new Map(),
     connectionStatus: 'connecting',
     
     roomNames: {
@@ -67,126 +74,149 @@ const appState = {
     }
 };
 
-// Socket.io WebSocket Client
-class SocketIOChat {
+// BroadcastChannel-based Multi-Tab Communication System
+class BroadcastChannelChat {
     constructor() {
-        this.socket = null;
-        this.serverUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-            ? 'http://localhost:3000'
-            : 'https://your-server.railway.app'; // Update with your deployed server URL
+        this.channel = null;
         this.init();
     }
 
     init() {
-        // Connect to Socket.io server
-        this.socket = io(this.serverUrl, {
-            transports: ['websocket', 'polling'],
-            timeout: 10000
-        });
-
-        this.setupEventHandlers();
+        // Check if BroadcastChannel is supported
+        if (typeof BroadcastChannel !== 'undefined') {
+            this.channel = new BroadcastChannel('brandemen_chat');
+            
+            this.channel.onmessage = (event) => {
+                this.handleMessage(event.data);
+            };
+            
+            // Announce presence immediately
+            this.sendPresence();
+            
+            // Send user-joined notification
+            setTimeout(() => {
+                this.channel.postMessage({
+                    type: 'user-joined',
+                    userId: appState.userId,
+                    username: appState.username,
+                    timestamp: Date.now()
+                });
+            }, 500);
+            
+            // Send presence every 10 seconds to stay "online"
+            setInterval(() => this.sendPresence(), 10000);
+        } else {
+            console.warn('BroadcastChannel not supported');
+        }
     }
 
-    setupEventHandlers() {
-        // Connection events
-        this.socket.on('connect', () => {
-            console.log('✅ Connected to WebSocket server');
-            app.updateConnectionStatus('connected');
-            
-            // Join initial room
-            this.joinRoom(appState.currentRoom);
-        });
-
-        this.socket.on('disconnect', () => {
-            console.log('❌ Disconnected from server');
-            app.updateConnectionStatus('connecting');
-        });
-
-        this.socket.on('connect_error', (error) => {
-            console.error('Connection error:', error);
-            app.updateConnectionStatus('connecting');
-        });
-
-        // Message events
-        this.socket.on('chat-message', (messageData) => {
-            // Don't process our own messages (already added locally)
-            if (messageData.userId !== appState.userId) {
-                app.addMessage(messageData, false);
+    handleMessage(data) {
+        try {
+            if (data.type === 'chat') {
+                // Don't process our own messages
+                if (data.userId !== appState.userId) {
+                    app.addMessage(data, false);
+                }
+            } else if (data.type === 'presence') {
+                // Update last seen timestamp for all users
+                app.userLastSeen.set(data.userId, Date.now());
+                
+                // Add user to online set if not already there
+                if (data.userId !== appState.userId) {
+                    if (!app.onlineUsersSet.has(data.userId)) {
+                        app.onlineUsersSet.add(data.userId);
+                    }
+                    // Update count (onlineUsersSet size already includes current user)
+                    app.updateOnlineCount(app.onlineUsersSet.size);
+                }
+            } else if (data.type === 'user-joined') {
+                if (data.userId !== appState.userId) {
+                    app.addSystemMessage(`${data.username} joined`);
+                }
             }
-        });
-
-        this.socket.on('user-joined', (data) => {
-            app.addSystemMessage(`${data.username} joined`);
-        });
-
-        this.socket.on('user-left', (data) => {
-            // Optional: notify when user leaves
-            console.log(`${data.username} left`);
-        });
-
-        this.socket.on('user-count', (data) => {
-            app.updateOnlineCount(data.count);
-        });
-
-        this.socket.on('typing', (data) => {
-            const typingIndicator = document.getElementById('typingIndicator');
-            if (data.isTyping) {
-                typingIndicator.innerHTML = `<span class="username-typing">${data.username}</span> is typing...`;
-            } else {
-                typingIndicator.innerHTML = '';
-            }
-        });
-    }
-
-    joinRoom(room) {
-        if (this.socket && this.socket.connected) {
-            this.socket.emit('join-room', room);
-            
-            // Notify server of user join
-            this.socket.emit('user-join', {
-                userId: appState.userId,
-                username: appState.username,
-                room: room
-            });
+        } catch (e) {
+            console.error('Error handling message:', e);
         }
     }
 
     sendMessage(text, room) {
-        if (!this.socket || !this.socket.connected) {
-            console.error('Not connected to server');
-            return;
-        }
-
-        this.socket.emit('chat-message', {
+        if (!this.channel) return;
+        
+        const messageData = {
+            type: 'chat',
+            userId: appState.userId,
+            username: appState.username,
+            room: room || appState.currentRoom, // Use passed room or fallback to current
             text: text,
-            room: room
+            timestamp: Date.now()
+        };
+
+        this.channel.postMessage(messageData);
+    }
+
+    sendPresence() {
+        if (!this.channel) return;
+        
+        this.channel.postMessage({
+            type: 'presence',
+            userId: appState.userId,
+            username: appState.username,
+            timestamp: Date.now()
         });
     }
 
-    sendTyping(isTyping) {
-        if (this.socket && this.socket.connected) {
-            this.socket.emit('typing', {
-                room: appState.currentRoom,
-                isTyping: isTyping
-            });
-        }
-    }
 }
 
 // Main Application
 const app = {
-    socketChat: null,
-    messages: new Map(),
+    chatSystem: null, // Will be initialized after user setup
+    onlineUsersSet: new Set(), // Track online users
+    userLastSeen: new Map(), // Track when users were last seen
     
     init() {
+        // Clear any stale data
+        this.onlineUsersSet.clear();
+        this.userLastSeen.clear();
+        
         this.setupUser();
-        this.socketChat = new SocketIOChat();
+        this.chatSystem = new BroadcastChannelChat();
         this.setupEventListeners();
         this.hideLoadingScreen();
         this.showWelcomeModal();
+        this.updateConnectionStatus('connected');
+        this.startOnlineUserTracking();
+        this.startUserCleanup();
+    },
+
+    startOnlineUserTracking() {
+        // Track online users from presence messages
+        setInterval(() => {
+            // Count unique users (including self)
+            const count = Math.max(1, this.onlineUsersSet.size);
+            this.updateOnlineCount(count);
+        }, 2000);
+    },
+
+    startUserCleanup() {
+        // Remove users who haven't sent presence for 20 seconds
+        setInterval(() => {
+            const now = Date.now();
+            const TIMEOUT = 20000; // 20 seconds
+            
+            this.userLastSeen.forEach((lastSeen, userId) => {
+                if (userId !== appState.userId && (now - lastSeen) > TIMEOUT) {
+                    this.onlineUsersSet.delete(userId);
+                    this.userLastSeen.delete(userId);
+                    // Update count after removal
+                    const count = Math.max(1, this.onlineUsersSet.size);
+                    this.updateOnlineCount(count);
+                }
+            });
+        }, 5000); // Check every 5 seconds
     },
 
     setupUser() {
+        // Generate or retrieve user ID
         const storedUserId = sessionStorage.getItem('brandemen_userId');
         appState.userId = storedUserId || 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
         
@@ -194,9 +224,16 @@ const app = {
             sessionStorage.setItem('brandemen_userId', appState.userId);
         }
         
+        // Generate premium username
         appState.username = generatePremiumName();
         
-        // Update welcome modal
+        // Add to online users
+        appState.onlineUsers.add(appState.userId);
+        this.onlineUsersSet.add(appState.userId);
+        this.userLastSeen.set(appState.userId, Date.now());
+        this.updateOnlineCount(1);
+        
+        // Update welcome modal with username
         const userNameEl = document.getElementById('userName');
         if (userNameEl) {
             userNameEl.textContent = appState.username;
@@ -243,6 +280,14 @@ const app = {
         document.getElementById('closeWelcome')?.addEventListener('click', () => {
             document.getElementById('welcomeModal').classList.add('hidden');
         });
+
+        document.getElementById('closeGuidelines')?.addEventListener('click', () => {
+            document.getElementById('guidelinesModal').classList.add('hidden');
+        });
+
+        document.getElementById('acceptGuidelines')?.addEventListener('click', () => {
+            document.getElementById('guidelinesModal').classList.add('hidden');
+        });
     },
 
     hideLoadingScreen() {
@@ -268,7 +313,7 @@ const app = {
     switchRoom(roomId) {
         appState.currentRoom = roomId;
         
-        // Update UI
+        // Update room buttons
         document.querySelectorAll('.room-btn').forEach(btn => {
             btn.classList.remove('active');
             if (btn.dataset.room === roomId) {
@@ -276,16 +321,13 @@ const app = {
             }
         });
         
+        // Update room name in empty state
         const roomNameEl = document.getElementById('currentRoomName');
         if (roomNameEl) {
             roomNameEl.textContent = appState.roomNames[roomId];
         }
         
-        // Join new room on server
-        if (this.socketChat) {
-            this.socketChat.joinRoom(roomId);
-        }
-        
+        // Clear messages (in a real P2P app, you'd fetch room-specific messages)
         this.renderMessages();
     },
 
@@ -295,12 +337,14 @@ const app = {
         
         if (!text) return;
         
+        // Moderate message
         const moderation = moderateMessage(text);
         if (!moderation.safe) {
             this.showNotification(moderation.reason);
             return;
         }
         
+        // Create message object
         const message = {
             userId: appState.userId,
             username: appState.username,
@@ -309,29 +353,33 @@ const app = {
             room: appState.currentRoom
         };
         
-        // Add to local state immediately
+        // Add to local state (shows immediately)
         this.addMessage(message, true);
         
-        // Send via WebSocket
-        if (this.socketChat) {
-            this.socketChat.sendMessage(text, appState.currentRoom);
+        // Send via BroadcastChannel to other tabs with the correct room
+        if (this.chatSystem) {
+            this.chatSystem.sendMessage(text, appState.currentRoom);
         }
         
         // Clear input
         messageInput.value = '';
         messageInput.style.height = 'auto';
+        
+        // Update char count
         document.getElementById('charCount').textContent = '0/500';
         
+        // Play sound (optional)
         this.playSound('send');
     },
 
     addMessage(messageData, isOwn = false) {
+        // Ensure message has a room property
         if (!messageData.room) {
             messageData.room = appState.currentRoom;
         }
         
         const messageKey = `${messageData.userId}_${messageData.timestamp}`;
-        this.messages.set(messageKey, messageData);
+        appState.messages.set(messageKey, messageData);
         
         this.renderMessages();
         this.scrollToBottom();
@@ -344,7 +392,7 @@ const app = {
             text: text,
             timestamp: Date.now(),
             isSystem: true,
-            room: appState.currentRoom
+            room: appState.currentRoom // Add room to system messages
         };
         
         this.addMessage(message, false);
@@ -354,10 +402,16 @@ const app = {
         const messagesWrapper = document.getElementById('messagesWrapper');
         const emptyState = document.getElementById('emptyState');
         
-        const roomMessages = Array.from(this.messages.values())
-            .filter(msg => msg.room && msg.room === appState.currentRoom)
+        // Filter messages for current room - only show messages that match exactly
+        const roomMessages = Array.from(appState.messages.values())
+            .filter(msg => {
+                // Only show messages that have a room property AND match the current room
+                // Ignore messages without a room property or with different room
+                return msg.room && msg.room === appState.currentRoom;
+            })
             .sort((a, b) => a.timestamp - b.timestamp);
         
+        // Always clear existing messages first
         messagesWrapper.innerHTML = '';
         
         if (roomMessages.length === 0) {
@@ -367,6 +421,7 @@ const app = {
         
         emptyState?.classList.add('hidden');
         
+        // Render messages
         roomMessages.forEach(msg => {
             const messageEl = this.createMessageElement(msg, msg.userId === appState.userId);
             messagesWrapper.appendChild(messageEl);
@@ -397,6 +452,7 @@ const app = {
     },
 
     formatMessage(text) {
+        // Basic formatting: links, line breaks
         return this.escapeHtml(text)
             .replace(/\n/g, '<br>')
             .replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank">$1</a>');
@@ -432,6 +488,7 @@ const app = {
     },
 
     showNotification(message) {
+        // Create temporary notification
         const notification = document.createElement('div');
         notification.textContent = message;
         notification.style.cssText = `
@@ -456,6 +513,7 @@ const app = {
     },
 
     playSound(type) {
+        // Optional sound feedback
         try {
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
             const oscillator = audioContext.createOscillator();
@@ -473,12 +531,12 @@ const app = {
             oscillator.start(audioContext.currentTime);
             oscillator.stop(audioContext.currentTime + 0.1);
         } catch (e) {
-            // Sound not supported
+            // Sound not supported or user preference
         }
     }
 };
 
-// Add CSS animations
+// Add CSS animations for notifications
 const style = document.createElement('style');
 style.textContent = `
     @keyframes slideInRight {
@@ -505,14 +563,14 @@ style.textContent = `
 `;
 document.head.appendChild(style);
 
-// Initialize app
+// Initialize app when DOM is ready
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => app.init());
 } else {
     app.init();
 }
 
-// Add demo message
+// Add some demo messages for testing
 setTimeout(() => {
-    app.addSystemMessage('Welcome to Brandemen. Real-time chat powered by WebSockets!');
+    app.addSystemMessage('Welcome to Brandemen. Share what\'s on your mind, or offer support to others.');
 }, 2500);
