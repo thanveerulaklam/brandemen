@@ -144,18 +144,25 @@ class AblyChatManager {
         try {
             const members = await this.channel.presence.get();
             console.log('📊 Current members in room:', members);
-            if (members && Array.isArray(members)) {
-                members.forEach(member => {
+            console.log('📊 Members type:', typeof members);
+            console.log('📊 Is array:', Array.isArray(members));
+            
+            if (members && Array.isArray(members) && members.length > 0) {
+                console.log(`📊 Processing ${members.length} existing members`);
+                members.forEach((member, index) => {
+                    console.log(`👤 Member ${index}:`, member);
                     if (member && member.data) {
-                        console.log('👤 Found member:', member.data);
+                        console.log(`👤 Found member:`, member.data);
                         this.handleUserJoined(member.data);
+                    } else {
+                        console.log(`⚠️ Invalid member data at index ${index}:`, member);
                     }
                 });
             } else {
-                console.log('⚠️ No members found or invalid response');
+                console.log('⚠️ No members found or invalid response (members:', members, ')');
             }
         } catch (error) {
-            console.error('Error getting current members:', error);
+            console.error('❌ Error getting current members:', error);
         }
 
         // Mark initial load as complete after a short delay
@@ -178,14 +185,18 @@ class AblyChatManager {
     }
 
     handleUserJoined(userData) {
-        console.log('🔔 User joined:', userData);
+        console.log('🔔 User joined event received');
+        console.log('🔔 userData:', JSON.stringify(userData, null, 2));
+        console.log('🔔 userData.userId:', userData?.userId);
+        console.log('🔔 this.userId:', this.userId);
         console.log('👥 Current online users before:', Array.from(this.onlineUsers));
         
         if (userData.userId && userData.userId !== this.userId) {
             this.onlineUsers.add(userData.userId);
             console.log('✅ Added user to online list:', userData.userId);
         } else {
-            console.log('❌ Not adding user (is self or no userId)');
+            const reason = !userData.userId ? 'no userId' : 'is self';
+            console.log(`❌ Not adding user (${reason})`);
         }
         
         const totalCount = this.onlineUsers.size + 1; // +1 for ourselves
