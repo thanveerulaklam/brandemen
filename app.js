@@ -100,79 +100,80 @@ class AblyChatManager {
             const channelName = `brandemen:${roomId}`;
             
             this.channel = this.ably.channels.get(channelName);
-        } catch (error) {
-            console.error('Error setting up channel:', error);
-            throw error;
-        }
-        
-        // Subscribe to messages
-        this.channel.subscribe('chat-message', (message) => {
-            this.handleChatMessage(message.data);
-        });
-        
-        // Subscribe to typing indicators
-        this.channel.subscribe('typing', (message) => {
-            this.handleTyping(message.data);
-        });
 
-        // Listen for presence updates BEFORE entering (to catch ourselves)
-        this.channel.presence.subscribe('enter', (member) => {
-            if (member && member.data) {
-                this.handleUserJoined(member.data);
-            }
-        });
+            // **FIX: Set up presence listeners BEFORE entering**
+            console.log('🔔 Setting up presence listeners...');
+            
+            // Listen for presence updates
+            this.channel.presence.subscribe('enter', (member) => {
+                if (member && member.data) {
+                    console.log('🔔 Presence ENTER event:', member.data.userId);
+                    this.handleUserJoined(member.data);
+                }
+            });
 
-        this.channel.presence.subscribe('leave', (member) => {
-            if (member && member.data) {
-                this.handleUserLeft(member.data);
-            }
-        });
+            this.channel.presence.subscribe('leave', (member) => {
+                if (member && member.data) {
+                    console.log('🔔 Presence LEAVE event:', member.data.userId);
+                    this.handleUserLeft(member.data);
+                }
+            });
 
-        // Set up presence (enter the room)
-        try {
+            // **FIX: Subscribe to messages AFTER presence setup**
+            this.channel.subscribe('chat-message', (message) => {
+                this.handleChatMessage(message.data);
+            });
+            
+            this.channel.subscribe('typing', (message) => {
+                this.handleTyping(message.data);
+            });
+
+            // **FIX: Enter presence and wait for sync**
+            console.log('🔔 Entering presence...');
             await this.channel.presence.enter({
                 userId: this.userId,
                 username: this.username,
                 room: roomId,
                 timestamp: Date.now()
             });
-        } catch (error) {
-            console.error('Error entering presence:', error);
-        }
 
-        // Get current members with waitForSync option
-        // This ensures Ably waits for presence data to be fully synchronized
-        try {
-            console.log('📊 Requesting current members (with waitForSync)...');
-            const members = await this.channel.presence.get({ waitForSync: true });
-            console.log('📊 Current members in room:', members);
-            console.log('📊 Members type:', typeof members);
-            console.log('📊 Is array:', Array.isArray(members));
-            
-            if (members && Array.isArray(members) && members.length > 0) {
-                console.log(`📊 Processing ${members.length} existing members`);
-                members.forEach((member, index) => {
-                    console.log(`👤 Member ${index}:`, member);
-                    if (member && member.data) {
-                        console.log(`👤 Found member:`, member.data);
-                        this.handleUserJoined(member.data);
-                    } else {
-                        console.log(`⚠️ Invalid member data at index ${index}:`, member);
-                    }
-                });
-            } else {
-                console.log('⚠️ No members found or invalid response (members:', members, ')');
+            // **FIX: Get current members with proper error handling**
+            console.log('📊 Getting current members...');
+            try {
+                const members = await this.channel.presence.get({ waitForSync: true });
+                console.log('📊 Current members received:', members ? members.length : 0);
+                
+                if (members && Array.isArray(members)) {
+                    // Clear current online users to avoid duplicates
+                    this.onlineUsers.clear();
+                    
+                    members.forEach((member) => {
+                        if (member && member.data && member.data.userId !== this.userId) {
+                            console.log('📊 Adding existing member:', member.data.userId);
+                            this.onlineUsers.add(member.data.userId);
+                        }
+                    });
+                    
+                    // Update count immediately
+                    const totalCount = this.onlineUsers.size + 1; // +1 for ourselves
+                    console.log('📊 Final online count after sync:', totalCount);
+                    app.updateOnlineCount(totalCount);
+                }
+            } catch (error) {
+                console.error('❌ Error getting current members:', error);
             }
+
+            // Mark initial load as complete
+            setTimeout(() => {
+                this.isInitialLoad = false;
+            }, 1000);
+
+            console.log(`✅ Joined room: ${roomId}`);
+
         } catch (error) {
-            console.error('❌ Error getting current members:', error);
+            console.error('Error joining room:', error);
+            throw error;
         }
-
-        // Mark initial load as complete after a short delay
-        setTimeout(() => {
-            this.isInitialLoad = false;
-        }, 1000);
-
-        console.log(`✅ Joined room: ${roomId}`);
     }
 
     handleChatMessage(messageData) {
@@ -187,30 +188,39 @@ class AblyChatManager {
     }
 
     handleUserJoined(userData) {
-        console.log('🔔 User joined event received');
-        console.log('🔔 userData:', JSON.stringify(userData, null, 2));
-        console.log('🔔 userData.userId:', userData?.userId);
-        console.log('🔔 this.userId:', this.userId);
-        console.log('👥 Current online users before:', Array.from(this.onlineUsers));
+        console.log('🔔 User joined handler called');
+        console.log('🔔 userData:', userData);
         
-        if (userData.userId && userData.userId !== this.userId) {
-            this.onlineUsers.add(userData.userId);
-            console.log('✅ Added user to online list:', userData.userId);
-        } else {
-            const reason = !userData.userId ? 'no userId' : 'is self';
-            console.log(`❌ Not adding user (${reason})`);
+        // Validate user data
+        if (!userData || !userData.userId) {
+            console.log('❌ Invalid user data in handleUserJoined');
+            return;
         }
         
-        const totalCount = this.onlineUsers.size + 1; // +1 for ourselves
-        console.log('📊 Total online count:', totalCount);
-        console.log('👥 Current online users after:', Array.from(this.onlineUsers));
+        // Don't add ourselves to online users
+        if (userData.userId === this.userId) {
+            console.log('❌ Skipping self in online users');
+            return;
+        }
         
-        // Update count including ourselves
+        console.log('👥 Online users before:', Array.from(this.onlineUsers));
+        
+        // Add user to online set
+        const wasAdded = this.onlineUsers.add(userData.userId);
+        console.log('✅ User added to online users:', userData.userId, 'New size:', this.onlineUsers.size);
+        
+        // Calculate total count (online users + ourselves)
+        const totalCount = this.onlineUsers.size + 1;
+        console.log('📊 Total online count:', totalCount);
+        console.log('👥 Online users after:', Array.from(this.onlineUsers));
+        
+        // Update UI
         app.updateOnlineCount(totalCount);
         
-        // Show join notification only for new joins (not initial load)
-        if (!this.isInitialLoad && userData.room === this.currentRoom && userData.userId !== this.userId) {
-            app.showNotification(`${userData.username} joined the room`);
+        // Show notification only for real-time joins (not initial sync)
+        if (!this.isInitialLoad && userData.room === this.currentRoom) {
+            const username = userData.username || 'Someone';
+            app.showNotification(`${username} joined the room`);
         }
     }
 
