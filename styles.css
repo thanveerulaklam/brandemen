@@ -168,13 +168,6 @@ body {
     50% { box-shadow: 0 0 12px currentColor; }
 }
 
-.online-count {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-    font-size: 0.875rem;
-    font-weight: 500;
-}
 
 /* Room Navigation */
 .room-nav {
