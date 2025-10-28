@@ -38,9 +38,7 @@ class AblyChatManager {
         this.userId = this.generateUserId();
         this.username = generatePremiumName();
         this.currentRoom = 'venting';
-        this.onlineUsers = new Map(); // Use Map instead of Set for better tracking
-        this.isInitialLoad = true;
-        this.presenceInitialized = false;
+        this.onlineUsers = new Set();
         
         this.init();
     }
@@ -88,107 +86,74 @@ class AblyChatManager {
     async joinRoom(roomId) {
         try {
             // Leave previous room if exists
-            if (this.channel && this.presenceInitialized) {
+            if (this.channel) {
                 try {
                     await this.channel.presence.leave();
                     this.channel.unsubscribe();
-                    this.presenceInitialized = false;
                 } catch (error) {
                     console.error('Error leaving previous room:', error);
                 }
             }
 
             this.currentRoom = roomId;
-            const channelName = `brandemen-${roomId}`; // Consistent channel name
+            const channelName = `brandemen:${roomId}`;
             
-            console.log(`🎯 Joining channel: ${channelName}`);
             this.channel = this.ably.channels.get(channelName);
+        } catch (error) {
+            console.error('Error setting up channel:', error);
+            throw error;
+        }
+        
+        // Subscribe to messages
+        this.channel.subscribe('chat-message', (message) => {
+            this.handleChatMessage(message.data);
+        });
+        
+        // Subscribe to typing indicators
+        this.channel.subscribe('typing', (message) => {
+            this.handleTyping(message.data);
+        });
 
-            // **CRITICAL FIX: Wait for channel to be attached before presence operations**
-            await new Promise((resolve, reject) => {
-                this.channel.once('attached', resolve);
-                this.channel.once('failed', reject);
-                this.channel.attach();
-            });
-
-            console.log('🔔 Channel attached, setting up presence...');
-
-            // **FIX: Set up presence listeners FIRST**
-            this.channel.presence.subscribe('enter', (member) => {
-                console.log('🔔 Presence ENTER:', member.clientId, member.data);
-                if (member.clientId !== this.userId) {
-                    this.handleUserJoined(member);
-                }
-            });
-
-            this.channel.presence.subscribe('leave', (member) => {
-                console.log('🔔 Presence LEAVE:', member.clientId);
-                if (member.clientId !== this.userId) {
-                    this.handleUserLeft(member);
-                }
-            });
-
-            // Subscribe to messages
-            this.channel.subscribe('chat-message', (message) => {
-                console.log('📨 Message received:', message.data);
-                this.handleChatMessage(message.data);
-            });
-            
-            this.channel.subscribe('typing', (message) => {
-                this.handleTyping(message.data);
-            });
-
-            // **FIX: Enter presence with clientId for consistency**
-            console.log('🔔 Entering presence as:', this.userId);
+        // Set up presence
+        try {
             await this.channel.presence.enter({
+                userId: this.userId,
                 username: this.username,
                 room: roomId,
                 timestamp: Date.now()
             });
-
-            this.presenceInitialized = true;
-
-            // **FIX: Get current members with better handling**
-            console.log('📊 Getting current members...');
-            try {
-                const members = await this.channel.presence.get({ waitForSync: true });
-                console.log('📊 Current members:', members);
-                
-                // Clear and rebuild online users
-                this.onlineUsers.clear();
-                
-                if (members && Array.isArray(members)) {
-                    members.forEach((member) => {
-                        if (member.clientId && member.clientId !== this.userId) {
-                            console.log('📊 Adding member:', member.clientId);
-                            this.onlineUsers.set(member.clientId, {
-                                username: member.data?.username || 'Anonymous',
-                                joinedAt: member.data?.timestamp || Date.now()
-                            });
-                        }
-                    });
-                }
-                
-                const totalCount = this.onlineUsers.size + 1;
-                console.log('📊 Final online count:', totalCount);
-                app.updateOnlineCount(totalCount);
-                
-            } catch (error) {
-                console.error('❌ Error getting members:', error);
-            }
-
-            // Mark initial load as complete
-            setTimeout(() => {
-                this.isInitialLoad = false;
-                console.log('✅ Initial load complete');
-            }, 2000);
-
-            console.log(`✅ Successfully joined room: ${roomId}`);
-
         } catch (error) {
-            console.error('❌ Error joining room:', error);
-            app.showNotification('Failed to join room');
+            console.error('Error entering presence:', error);
         }
+
+        // Listen for presence updates
+        this.channel.presence.subscribe('enter', (member) => {
+            if (member && member.data) {
+                this.handleUserJoined(member.data);
+            }
+        });
+
+        this.channel.presence.subscribe('leave', (member) => {
+            if (member && member.data) {
+                this.handleUserLeft(member.data);
+            }
+        });
+
+        // Get current members
+        try {
+            const members = await this.channel.presence.get();
+            if (members && Array.isArray(members)) {
+                members.forEach(member => {
+                    if (member && member.data) {
+                        this.handleUserJoined(member.data);
+                    }
+                });
+            }
+        } catch (error) {
+            console.error('Error getting current members:', error);
+        }
+
+        console.log(`✅ Joined room: ${roomId}`);
     }
 
     handleChatMessage(messageData) {
@@ -202,39 +167,20 @@ class AblyChatManager {
         }
     }
 
-    handleUserJoined(member) {
-        console.log('🔔 handleUserJoined called for:', member.clientId);
-        
-        if (!member.clientId || member.clientId === this.userId) {
-            return;
-        }
-        
-        const userInfo = {
-            username: member.data?.username || 'Anonymous',
-            joinedAt: member.data?.timestamp || Date.now()
-        };
-        
-        this.onlineUsers.set(member.clientId, userInfo);
-        
-        const totalCount = this.onlineUsers.size + 1;
-        console.log('👥 User joined - online count:', totalCount, 'Users:', Array.from(this.onlineUsers.keys()));
-        
-        app.updateOnlineCount(totalCount);
-        
-        // Show notification for real-time joins
-        if (!this.isInitialLoad) {
-            app.showNotification(`${userInfo.username} joined the room`);
+    handleUserJoined(userData) {
+        if (userData.userId !== this.userId) {
+            this.onlineUsers.add(userData.userId);
+            
+            // Show join notification for current room
+            if (userData.room === this.currentRoom) {
+                app.showNotification(`${userData.username} joined the room`);
+            }
         }
     }
 
-    handleUserLeft(member) {
-        console.log('🔔 handleUserLeft called for:', member.clientId);
-        
-        if (member.clientId && member.clientId !== this.userId) {
-            this.onlineUsers.delete(member.clientId);
-            const totalCount = this.onlineUsers.size + 1;
-            console.log('👥 User left - online count:', totalCount);
-            app.updateOnlineCount(totalCount);
+    handleUserLeft(userData) {
+        if (userData.userId !== this.userId) {
+            this.onlineUsers.delete(userData.userId);
         }
     }
 
@@ -301,8 +247,10 @@ class AblyChatManager {
 
     async switchRoom(roomId) {
         try {
-            this.isInitialLoad = true; // Reset for new room
+            // Join the new room (messages persist in app.messages Map)
             await this.joinRoom(roomId);
+            
+            // Just render the messages for the current room
             app.renderMessages();
         } catch (error) {
             console.error('Error switching room:', error);
@@ -583,12 +531,6 @@ const app = {
         }
     },
 
-    updateOnlineCount(count) {
-        const userCountEl = document.getElementById('userCount');
-        if (userCountEl) {
-            userCountEl.textContent = count;
-        }
-    },
 
     showNotification(message) {
         const notification = document.createElement('div');
